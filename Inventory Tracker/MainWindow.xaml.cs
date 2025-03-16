@@ -44,6 +44,14 @@ namespace Inventory_Tracker
 
                     // Bind data to DataGrid
                     Data_Grid1.ItemsSource = dt.DefaultView;
+
+                    // Ensure DataGrid updates column widths properly
+                    Data_Grid1.UpdateLayout();
+
+                    foreach (var column in Data_Grid1.Columns)
+                    {
+                        column.Width = DataGridLength.Auto; // Auto-fit column content
+                    }
                 }
             }
             catch (Exception ex)
@@ -56,14 +64,13 @@ namespace Inventory_Tracker
         {
             SaveFileDialog saveFileDialog = new SaveFileDialog
             {
-                Filter = "PDF files (*.pdf)|*.pdf",
+                Filter = "PDF Files (*.pdf)|*.pdf",
                 Title = "Save PDF Report"
             };
 
             if (saveFileDialog.ShowDialog() == true)
             {
-                string filePath = saveFileDialog.FileName;
-                ExportToPDF(filePath);
+                ExportToPDF(saveFileDialog.FileName);
             }
         }
 
@@ -71,69 +78,34 @@ namespace Inventory_Tracker
         {
             try
             {
-                DataTable dataTable = GetAvailableItems();
+                DataTable availableItemsTable = GetAvailableItems();
+                DataTable reportedItemsTable = GetReportedItems();
 
-                if (dataTable.Rows.Count == 0)
+                if (availableItemsTable.Rows.Count == 0 && reportedItemsTable.Rows.Count == 0)
                 {
                     MessageBox.Show("No data available to export.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
-                Document doc = new Document(PageSize.A4.Rotate(), 50, 50, 50, 50); // Use landscape mode to fit more content
+                Document doc = new Document(PageSize.A4.Rotate(), 50, 50, 50, 50);
                 PdfWriter.GetInstance(doc, new FileStream(filePath, FileMode.Create));
                 doc.Open();
 
-                // Add title
-                iTextSharp.text.Paragraph title = new iTextSharp.text.Paragraph("Available Items Report")
+                // Export Available Items
+                if (availableItemsTable.Rows.Count > 0)
                 {
-                    Alignment = Element.ALIGN_CENTER
-                };
-                title.Font.SetStyle(Font.BOLD);
-                doc.Add(title);
-                doc.Add(new iTextSharp.text.Paragraph("\n"));
-
-                // Create table
-                PdfPTable table = new PdfPTable(dataTable.Columns.Count)
-                {
-                    WidthPercentage = 100
-                };
-
-                // Set column widths dynamically
-                float[] columnWidths = new float[dataTable.Columns.Count];
-                for (int i = 0; i < columnWidths.Length; i++)
-                {
-                    columnWidths[i] = 1f; // Equal column distribution
-                }
-                table.SetWidths(columnWidths);
-
-                // Add headers
-                foreach (DataColumn column in dataTable.Columns)
-                {
-                    PdfPCell cell = new PdfPCell(new Phrase(column.ColumnName))
-                    {
-                        BackgroundColor = new BaseColor(200, 200, 200),
-                        HorizontalAlignment = Element.ALIGN_CENTER,
-                        Padding = 5
-                    };
-                    table.AddCell(cell);
+                    AddTableToPDF(doc, availableItemsTable, "Available Items Report");
                 }
 
-                // Add data
-                foreach (DataRow row in dataTable.Rows)
+                // Add space between tables
+                doc.Add(new iTextSharp.text.Paragraph("\n\n"));
+
+                // Export Reported Items
+                if (reportedItemsTable.Rows.Count > 0)
                 {
-                    foreach (object item in row.ItemArray)
-                    {
-                        PdfPCell dataCell = new PdfPCell(new Phrase(item.ToString()))
-                        {
-                            Padding = 5,
-                            HorizontalAlignment = Element.ALIGN_LEFT,
-                            NoWrap = false // Ensure text wraps instead of cutting
-                        };
-                        table.AddCell(dataCell);
-                    }
+                    AddTableToPDF(doc, reportedItemsTable, "Reported Items Report");
                 }
 
-                doc.Add(table);
                 doc.Close();
                 MessageBox.Show("PDF Exported Successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -164,6 +136,110 @@ namespace Inventory_Tracker
                 MessageBox.Show($"Database Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return dataTable;
+        }
+
+        private DataTable GetReportedItems()
+        {
+            DataTable dataTable = new DataTable();
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connectionString))
+                {
+                    conn.Open();
+                    string query = "SELECT * FROM ReportedItems";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    using (SqlDataAdapter adapter = new SqlDataAdapter(cmd))
+                    {
+                        adapter.Fill(dataTable);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Database Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            return dataTable;
+        }
+
+        private void AddTableToPDF(Document doc, DataTable dataTable, string title)
+        {
+            // Add title
+            iTextSharp.text.Paragraph tableTitle = new iTextSharp.text.Paragraph(title, FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14))
+            {
+                Alignment = Element.ALIGN_CENTER,
+                SpacingAfter = 10
+            };
+            doc.Add(tableTitle);
+
+            // Create table
+            PdfPTable table = new PdfPTable(dataTable.Columns.Count)
+            {
+                WidthPercentage = 100
+            };
+
+            // Set column widths dynamically
+            float[] columnWidths = new float[dataTable.Columns.Count];
+            for (int i = 0; i < columnWidths.Length; i++)
+            {
+                columnWidths[i] = 1f; // Equal column distribution
+            }
+            table.SetWidths(columnWidths);
+
+            // Add headers
+            foreach (DataColumn column in dataTable.Columns)
+            {
+                PdfPCell cell = new PdfPCell(new Phrase(column.ColumnName, FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 10)))
+                {
+                    BackgroundColor = new BaseColor(200, 200, 200),
+                    HorizontalAlignment = Element.ALIGN_CENTER,
+                    Padding = 5
+                };
+                table.AddCell(cell);
+            }
+
+            // Add data
+            foreach (DataRow row in dataTable.Rows)
+            {
+                foreach (object item in row.ItemArray)
+                {
+                    PdfPCell dataCell = new PdfPCell(new Phrase(item.ToString(), FontFactory.GetFont(FontFactory.HELVETICA, 10)))
+                    {
+                        Padding = 5,
+                        HorizontalAlignment = Element.ALIGN_LEFT
+                    };
+                    table.AddCell(dataCell);
+                }
+            }
+
+            doc.Add(table);
+        }
+
+        private void Reported_Tem(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void Reported_Item_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connectionString))
+                {
+                    conn.Open();
+                    string query = "SELECT * FROM ReportedItems";
+
+                    SqlDataAdapter adapter = new SqlDataAdapter(query, conn);
+                    DataTable dt = new DataTable();
+                    adapter.Fill(dt);
+
+                    // Bind data to DataGrid
+                    Data_Grid1.ItemsSource = dt.DefaultView;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message, "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }
